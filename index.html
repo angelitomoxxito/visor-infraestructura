@@ -21,8 +21,13 @@
     </nav>
   </header>
 
-  <main class="layout">
-    <aside class="sidebar">
+  <main class="layout" id="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <strong>Panel de consulta</strong>
+        <button id="toggleSidebar" class="icon-button" title="Ocultar o mostrar menú">‹</button>
+      </div>
+
       <section class="panel">
         <h2>Filtros</h2>
 
@@ -56,6 +61,24 @@
         <div id="maintenanceFilters" class="checklist"></div>
       </section>
 
+      <section class="panel collapsible-panel">
+        <button id="toggleExtras" class="collapse-title" aria-expanded="false">
+          <span>Extras</span>
+          <span id="extrasArrow">›</span>
+        </button>
+        <div id="extrasBody" class="collapsible-body hidden">
+          <p class="hint">Capas adicionales de contexto territorial.</p>
+          <label class="inline-check">
+            <input type="checkbox" id="toggleSubsidencias">
+            <span>Subsidencias</span>
+          </label>
+          <label class="inline-check">
+            <input type="checkbox" id="toggleFracturamiento">
+            <span>Fracturamiento</span>
+          </label>
+        </div>
+      </section>
+
       <section class="panel compact">
         <h2>Resumen visible</h2>
         <div class="kpis">
@@ -65,6 +88,8 @@
         </div>
       </section>
     </aside>
+
+    <button id="showSidebar" class="show-sidebar hidden" title="Mostrar menú">Menú</button>
 
     <section class="maparea">
       <div id="map"></div>
@@ -80,6 +105,20 @@
           <div><span class="swatch c-media"></span>11 a 14 Media</div>
           <div><span class="swatch c-alta"></span>15 a 18 Alta</div>
           <div><span class="swatch c-muy-alta"></span>19 a 24 Muy alta</div>
+        </div>
+      </div>
+
+      <div id="subsidenciaLegend" class="legend extra-legend hidden">
+        <div class="legend-head">
+          <strong>Subsidencia acumulada</strong>
+          <button id="toggleSubLegend" title="Ocultar leyenda">−</button>
+        </div>
+        <div id="subLegendBody">
+          <div><span class="swatch square s-muy-bajo"></span>0 a 7 cm Muy bajo</div>
+          <div><span class="swatch square s-bajo"></span>8 a 15 cm Bajo</div>
+          <div><span class="swatch square s-medio"></span>16 a 23 cm Medio</div>
+          <div><span class="swatch square s-alto"></span>24 a 31 cm Alto</div>
+          <div><span class="swatch square s-muy-alto"></span>32 a 40 cm Muy alto</div>
         </div>
       </div>
 
