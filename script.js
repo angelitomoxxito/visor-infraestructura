@@ -1,323 +1,281 @@
-/* Visor RM08 - mantenimiento escolar
-   Archivos esperados en /data:
-   indicemantenimiento.json, basededatosrm08cc.csv, alcaldias.json, ageb.json,
-   subsidencias.json y fracturamiento.json.
-*/
+'use strict';
 
-const DATA_PATHS = {
-  schoolsGeoJSON: "data/indicemantenimiento.json",
-  schoolsCSV: "data/basededatosrm08cc.csv",
-  alcaldias: "data/alcaldias.json",
-  agebs: "data/ageb.json",
-  subsidencias: "data/subsidencias.json",
-  fracturamiento: "data/fracturamiento.json"
+const CONFIG = {
+  data: {
+    escuelasGeoJSON: 'data/indicemantenimiento.json',
+    escuelasCSV: 'data/basededatosrm08cc.csv',
+    alcaldias: 'data/alcaldias.json',
+    ageb: 'data/ageb.json',
+    subsidencias: 'data/subsidencias.json',
+    fracturamiento: 'data/fracturamiento.json'
+  },
+  fields: {
+    alcaldia: 'alcaldia', nivel: 'principal', nombre: 'inmueble', coordX: 'coord_x', coordY: 'coord_y', indice: 'Indice_Man', ccts: ['cct1','cct2','cct3','cct4']
+  },
+  maintenance: [
+    'impermeabi','interior','exterior1','loseta','ventanas','ventanas1','ventanas2','puertas','escaleras','pluviales','techos','desazolve','deterioro','concreto','tinacos','cisterna','agua','agua1','hidrosanit','sanitarios','luminarias','electrica','transforma','lamina'
+  ],
+  maintenanceLabels: {
+    impermeabi:'Impermeabilización', interior:'Pintura interior', exterior1:'Pintura exterior', loseta:'Loseta', ventanas:'Vidrios/ventanas', ventanas1:'Cancelería de aluminio/ventanas', ventanas2:'Cancelería de herrería por aluminio/ventanas', puertas:'Puertas', escaleras:'Barandales, pasillos o escaleras', pluviales:'Bajadas pluviales', techos:'Muros o techos', desazolve:'Desazolve', deterioro:'Deterioro', concreto:'Concreto', tinacos:'Tinacos', cisterna:'Cisterna', agua:'Agua', agua1:'Sistema de agua', hidrosanit:'Hidrosanitario', sanitarios:'Sanitarios', luminarias:'Luminarias', electrica:'Instalación eléctrica', transforma:'Transformador', lamina:'Lámina'
+  },
+  zoom: { alcaldiaMax: 11, agebMax: 13 }
 };
 
-const FIELDS = {
-  alcaldia: "alcaldia",
-  nivel: "principal",
-  nombre: "inmueble",
-  ccts: ["cct1", "cct2", "cct3", "cct4"],
-  x: "coord_x",
-  y: "coord_y",
-  indice: "Indice_Man"
+const state = {
+  allSchools: [], filteredSchools: [], schoolMarkers: new Map(), selectedFracture: null,
+  layers: {}, geo: {}, filters: { alcaldia:'', nivel:'', need:'', cct:'', nombre:'' }
 };
 
-const MAINTENANCE_FIELDS = [
-  "impermeabi","interior","exterior1","loseta","ventanas","ventanas1","ventanas2",
-  "puertas","escaleras","pluviales","techos","desazolve","deterioro","concreto",
-  "tinacos","cisterna","agua","agua1","hidrosanit","sanitarios","luminarias",
-  "electrica","transforma","lamina"
-];
-
-const MAINTENANCE_LABELS = {
-  impermeabi:"Impermeabilización", interior:"Pintura interior", exterior1:"Pintura exterior",
-  loseta:"Loseta", ventanas:"Vidrios / ventanas", ventanas1:"Cancelería de aluminio / ventanas",
-  ventanas2:"Cancelería de herrería / ventanas", puertas:"Puertas", escaleras:"Barandales, pasillos o escaleras",
-  pluviales:"Bajadas pluviales", techos:"Muros o techos", desazolve:"Desazolve",
-  deterioro:"Deterioro de estructura o acabados", concreto:"Concreto", tinacos:"Tinacos",
-  cisterna:"Cisterna", agua:"Agua potable", agua1:"Red o abastecimiento de agua",
-  hidrosanit:"Instalación hidrosanitaria", sanitarios:"Sanitarios", luminarias:"Luminarias",
-  electrica:"Instalación eléctrica", transforma:"Transformador", lamina:"Lámina"
-};
-
-let allSchools = [];
-let filteredSchools = [];
-let alcaldiasGeoJSON = null;
-let agebsGeoJSON = null;
-let subsidenciasGeoJSON = null;
-let fracturamientoGeoJSON = null;
-let selectedFractureLayer = null;
-
-let schoolLayer = L.markerClusterGroup({
-  showCoverageOnHover:false,
-  maxClusterRadius:28,
-  spiderfyOnMaxZoom:true,
-  disableClusteringAtZoom:13
-});
-let alcaldiaSummaryLayer = L.layerGroup();
-let agebSummaryLayer = L.layerGroup();
-let alcaldiaBoundaryLayer = null;
-let agebBoundaryLayer = null;
-let subsidenciaLayer = null;
-let fracturamientoLayer = null;
-
-const map = L.map("map", {zoomControl:true, preferCanvas:true}).setView([19.35, -99.13], 10);
+const map = L.map('map', { zoomControl: false }).setView([19.43, -99.13], 10);
+L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
 const baseLayers = {
-  "Mapa claro": L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {maxZoom:20, attribution:"© OpenStreetMap © CARTO"}),
-  "OpenStreetMap": L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, attribution:"© OpenStreetMap"}),
-  "Satélite": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {maxZoom:19, attribution:"Tiles © Esri"}),
-  "Mapa oscuro": L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {maxZoom:20, attribution:"© OpenStreetMap © CARTO"})
+  'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }),
+  'Satélite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles &copy; Esri' }),
+  'Mapa claro': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20, attribution: '&copy; CARTO' }),
+  'Mapa oscuro': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 20, attribution: '&copy; CARTO' })
 };
-baseLayers["Mapa claro"].addTo(map);
+baseLayers['Mapa claro'].addTo(map);
+L.control.layers(baseLayers, {}, { position: 'topright', collapsed: true }).addTo(map);
 
-const overlayLayers = {
-  "Límite de alcaldías": L.layerGroup(),
-  "AGEB": L.layerGroup()
-};
-L.control.layers(baseLayers, overlayLayers, {collapsed:true, position:"bottomright"}).addTo(map);
-schoolLayer.addTo(map);
-
-document.addEventListener("DOMContentLoaded", init);
+state.layers.alcaldias = L.geoJSON(null, { style: { color:'#607d8b', weight:1.2, fill:false } });
+state.layers.ageb = L.geoJSON(null, { style: { color:'#95a5a6', weight:.8, fill:false, opacity:.65 } });
+state.layers.subsidencias = L.geoJSON(null, { style: f => ({ color:'#555', weight:.2, fillColor: colorSubsidencia(f.properties.gridcode), fillOpacity:.48 }), onEachFeature: onSubFeature });
+state.layers.fracturamiento = L.geoJSON(null, { style: { color:'#552583', weight:2.2, opacity:.85 }, onEachFeature: onFractureFeature });
+state.layers.schools = L.markerClusterGroup({ maxClusterRadius: 36, disableClusteringAtZoom: 14, spiderfyOnMaxZoom: true, showCoverageOnHover: false });
+state.layers.summary = L.layerGroup();
 
 async function init(){
-  buildMaintenanceMenu();
   bindUI();
-
-  const [schools, alcaldias, agebs, subsidencias, fracturamiento] = await Promise.all([
-    loadSchools(), fetchJsonSafe(DATA_PATHS.alcaldias), fetchJsonSafe(DATA_PATHS.agebs),
-    fetchJsonSafe(DATA_PATHS.subsidencias), fetchJsonSafe(DATA_PATHS.fracturamiento)
-  ]);
-
-  allSchools = schools;
-  filteredSchools = [...allSchools];
-  alcaldiasGeoJSON = alcaldias;
-  agebsGeoJSON = agebs;
-  subsidenciasGeoJSON = subsidencias;
-  fracturamientoGeoJSON = fracturamiento;
-
-  drawBoundaries();
-  drawExtraLayers();
+  await Promise.all([loadBoundaries(), loadExtras(), loadSchools()]);
   populateFilters();
-  updateMap();
+  applyFilters();
+  state.layers.alcaldias.addTo(map);
 }
 
+async function loadJSON(url){
+  const res = await fetch(url, { cache:'no-store' });
+  if(!res.ok) throw new Error(`No se pudo cargar ${url}`);
+  return res.json();
+}
+async function loadBoundaries(){
+  try{ state.geo.alcaldias = await loadJSON(CONFIG.data.alcaldias); state.layers.alcaldias.addData(normalizeGeoJSON(state.geo.alcaldias)); }catch(e){ console.warn(e.message); }
+  try{ state.geo.ageb = await loadJSON(CONFIG.data.ageb); state.layers.ageb.addData(normalizeGeoJSON(state.geo.ageb)); }catch(e){ console.warn(e.message); }
+}
+async function loadExtras(){
+  try{ const sub = normalizeGeoJSON(await loadJSON(CONFIG.data.subsidencias)); state.layers.subsidencias.addData(sub); }catch(e){ console.warn(e.message); }
+  try{ const frac = normalizeGeoJSON(await loadJSON(CONFIG.data.fracturamiento)); state.layers.fracturamiento.addData(frac); }catch(e){ console.warn(e.message); }
+}
 async function loadSchools(){
-  const geo = await fetchJsonSafe(DATA_PATHS.schoolsGeoJSON);
-  if(geo && geo.features && geo.features.length){
-    return geo.features.map((f, i) => normalizeFeature(f, i)).filter(Boolean);
-  }
-  return new Promise((resolve, reject) => {
-    Papa.parse(DATA_PATHS.schoolsCSV, {
-      download:true, header:true, dynamicTyping:true, skipEmptyLines:true,
-      complete: results => resolve(results.data.map((row, i) => normalizeRow(row, i)).filter(Boolean)),
-      error: err => reject(err)
-    });
-  });
-}
-
-async function fetchJsonSafe(url){
+  let loaded = false;
   try{
-    const res = await fetch(url, {cache:"no-store"});
-    if(!res.ok) return null;
-    const txt = await res.text();
-    if(!txt || txt.trim().length < 5) return null;
-    return JSON.parse(txt);
-  }catch(e){
-    return null;
+    const geo = normalizeGeoJSON(await loadJSON(CONFIG.data.escuelasGeoJSON));
+    if(geo.features && geo.features.length){
+      state.allSchools = geo.features.map((f,i) => featureToSchool(f, i)).filter(Boolean); loaded = true;
+    }
+  }catch(e){ console.warn('Se usará CSV como respaldo:', e.message); }
+  if(!loaded){
+    const csv = await fetch(CONFIG.data.escuelasCSV, { cache:'no-store' }).then(r => r.text());
+    const parsed = Papa.parse(csv, { header:true, dynamicTyping:false, skipEmptyLines:true });
+    state.allSchools = parsed.data.map((row,i)=>rowToSchool(row,i)).filter(Boolean);
   }
 }
-
-function normalizeFeature(feature, i){
-  const p = feature.properties || {};
-  let lon, lat;
-  if(feature.geometry && feature.geometry.type === "Point"){
-    lon = Number(feature.geometry.coordinates[0]); lat = Number(feature.geometry.coordinates[1]);
-  }else{
-    lon = Number(p[FIELDS.x]); lat = Number(p[FIELDS.y]);
-  }
-  if(!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return normalizeCommon(p, lat, lon, i);
+function featureToSchool(f,i){
+  const p = f.properties || {};
+  let coords = null;
+  if(f.geometry && f.geometry.type === 'Point') coords = f.geometry.coordinates;
+  if(!coords && p[CONFIG.fields.coordX] && p[CONFIG.fields.coordY]) coords = [Number(p[CONFIG.fields.coordX]), Number(p[CONFIG.fields.coordY])];
+  if(!coords) return null;
+  const ll = normalizePoint(coords[0], coords[1]);
+  if(!ll) return null;
+  return buildSchool(p, ll.lat, ll.lng, i);
 }
-function normalizeRow(row, i){
-  const lon = Number(row[FIELDS.x]); const lat = Number(row[FIELDS.y]);
-  if(!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return normalizeCommon(row, lat, lon, i);
+function rowToSchool(row,i){
+  const ll = normalizePoint(Number(row[CONFIG.fields.coordX]), Number(row[CONFIG.fields.coordY]));
+  if(!ll) return null;
+  return buildSchool(row, ll.lat, ll.lng, i);
 }
-function normalizeCommon(p, lat, lon, i){
-  const indice = Number.isFinite(Number(p[FIELDS.indice])) ? Number(p[FIELDS.indice]) : MAINTENANCE_FIELDS.reduce((sum, field) => sum + toBinary(p[field]), 0);
-  const ccts = FIELDS.ccts.map(f => cleanText(p[f])).filter(Boolean);
-  return {id:cleanText(p.idinmueble)||`escuela-${i}`, lat, lon, props:p, nombre:cleanText(p[FIELDS.nombre])||"Sin nombre", alcaldia:normalizeText(p[FIELDS.alcaldia]), nivel:normalizeText(p[FIELDS.nivel]), ccts, indice, clasificacion:classifyIndex(indice), needs:MAINTENANCE_FIELDS.filter(f => toBinary(p[f]) === 1)};
+function buildSchool(p, lat, lng, id){
+  const idx = Number(p[CONFIG.fields.indice]);
+  const indice = Number.isFinite(idx) ? idx : CONFIG.maintenance.reduce((s,k)=>s + (Number(p[k]) === 1 ? 1 : 0), 0);
+  return { id, lat, lng, p, indice, clase: classifyIndex(indice), ccts: CONFIG.fields.ccts.map(k=>String(p[k]||'').trim()).filter(Boolean) };
 }
-function toBinary(value){ if(value === 1 || value === "1") return 1; const n = Number(value); return Number.isFinite(n) && n === 1 ? 1 : 0; }
-function cleanText(value){ if(value === null || value === undefined) return ""; const s = String(value).trim(); if(!s || s.toLowerCase() === "nan") return ""; return s; }
-function normalizeText(value){ return cleanText(value).replace(/\s+/g, " "); }
-function classifyIndex(v){ if(v <= 6) return "Muy baja"; if(v <= 10) return "Baja"; if(v <= 14) return "Media"; if(v <= 18) return "Alta"; return "Muy alta"; }
-function colorByIndex(v){ if(v <= 6) return "#2ca25f"; if(v <= 10) return "#a1d99b"; if(v <= 14) return "#ffd166"; if(v <= 18) return "#f97316"; return "#dc2626"; }
-function classSlug(label){ return label.toLowerCase().replace(/\s+/g, "-"); }
-
-function buildMaintenanceMenu(){
-  const container = document.getElementById("maintenanceFilters");
-  container.innerHTML = MAINTENANCE_FIELDS.map(field => `<label><input type="checkbox" value="${field}"><span>${MAINTENANCE_LABELS[field] || field}</span></label>`).join("");
+function normalizePoint(x,y){
+  if(!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  if(Math.abs(x) <= 180 && Math.abs(y) <= 90) return { lng:x, lat:y };
+  if(Math.abs(y) <= 180 && Math.abs(x) <= 90) return { lng:y, lat:x };
+  const ll = utmToLatLng(x,y,14,true);
+  return ll && Number.isFinite(ll.lat) && Number.isFinite(ll.lng) ? ll : null;
 }
-
-function bindUI(){
-  document.getElementById("btnAplicar").addEventListener("click", applyFilters);
-  document.getElementById("btnLimpiar").addEventListener("click", clearFilters);
-  document.getElementById("filtroAlcaldia").addEventListener("change", () => { applyFilters(); zoomToSelectedAlcaldia(); });
-  document.getElementById("filtroNivel").addEventListener("change", applyFilters);
-  document.getElementById("buscarCCT").addEventListener("input", applyFilters);
-  document.getElementById("buscarNombre").addEventListener("input", applyFilters);
-  document.getElementById("buscarCCT").addEventListener("change", () => zoomToMatchedSchool("cct"));
-  document.getElementById("buscarNombre").addEventListener("change", () => zoomToMatchedSchool("nombre"));
-  document.getElementById("maintenanceFilters").addEventListener("change", applyFilters);
-  document.getElementById("closeDetail").addEventListener("click", () => document.getElementById("detailPanel").classList.remove("open"));
-  document.getElementById("toggleLegend").addEventListener("click", () => toggleBox("legendBody", "toggleLegend"));
-  document.getElementById("toggleSubLegend").addEventListener("click", () => toggleBox("subLegendBody", "toggleSubLegend"));
-  document.getElementById("toggleSidebar").addEventListener("click", collapseSidebar);
-  document.getElementById("showSidebar").addEventListener("click", expandSidebar);
-  document.getElementById("toggleExtras").addEventListener("click", toggleExtrasMenu);
-  document.getElementById("toggleSubsidencias").addEventListener("change", e => toggleSubsidencias(e.target.checked));
-  document.getElementById("toggleFracturamiento").addEventListener("change", e => toggleFracturamiento(e.target.checked));
-  map.on("zoomend", updateVisibilityByZoom);
+function normalizeGeoJSON(gj){
+  if(!gj || !gj.type) return { type:'FeatureCollection', features:[] };
+  const name = gj.crs?.properties?.name || '';
+  const needsUTM = /32614|UTM/i.test(name) || hasLargeCoords(gj);
+  if(!needsUTM) return gj;
+  const copy = JSON.parse(JSON.stringify(gj));
+  copy.crs = { type:'name', properties:{ name:'EPSG:4326' } };
+  copy.features?.forEach(f => { if(f.geometry) f.geometry.coordinates = transformCoords(f.geometry.coordinates); });
+  return copy;
 }
-function toggleBox(bodyId, buttonId){ const body = document.getElementById(bodyId); const btn = document.getElementById(buttonId); const hidden = body.style.display === "none"; body.style.display = hidden ? "block" : "none"; btn.textContent = hidden ? "−" : "+"; }
-function collapseSidebar(){ document.getElementById("layout").classList.add("sidebar-collapsed"); document.getElementById("showSidebar").classList.remove("hidden"); setTimeout(() => map.invalidateSize(), 220); }
-function expandSidebar(){ document.getElementById("layout").classList.remove("sidebar-collapsed"); document.getElementById("showSidebar").classList.add("hidden"); setTimeout(() => map.invalidateSize(), 220); }
-function toggleExtrasMenu(){ const body = document.getElementById("extrasBody"); const arrow = document.getElementById("extrasArrow"); const open = body.classList.contains("hidden"); body.classList.toggle("hidden", !open); arrow.textContent = open ? "⌄" : "›"; document.getElementById("toggleExtras").setAttribute("aria-expanded", String(open)); }
+function hasLargeCoords(gj){
+  const f = gj.features?.[0]; let c = f?.geometry?.coordinates;
+  while(Array.isArray(c?.[0])) c = c[0];
+  return Array.isArray(c) && (Math.abs(c[0]) > 180 || Math.abs(c[1]) > 90);
+}
+function transformCoords(c){
+  if(typeof c?.[0] === 'number') { const ll = utmToLatLng(c[0], c[1], 14, true); return [ll.lng, ll.lat]; }
+  return c.map(transformCoords);
+}
+function utmToLatLng(easting,northing,zone,northern){
+  const a=6378137, e=0.081819191, e1sq=0.006739497, k0=0.9996;
+  let x=easting-500000, y=northing; if(!northern) y-=10000000;
+  const lon0=(zone-1)*6-180+3, m=y/k0, mu=m/(a*(1-e*e/4-3*Math.pow(e,4)/64-5*Math.pow(e,6)/256));
+  const e1=(1-Math.sqrt(1-e*e))/(1+Math.sqrt(1-e*e));
+  const j1=3*e1/2-27*Math.pow(e1,3)/32, j2=21*e1*e1/16-55*Math.pow(e1,4)/32, j3=151*Math.pow(e1,3)/96, j4=1097*Math.pow(e1,4)/512;
+  const fp=mu+j1*Math.sin(2*mu)+j2*Math.sin(4*mu)+j3*Math.sin(6*mu)+j4*Math.sin(8*mu);
+  const c1=e1sq*Math.pow(Math.cos(fp),2), t1=Math.pow(Math.tan(fp),2), r1=a*(1-e*e)/Math.pow(1-e*e*Math.pow(Math.sin(fp),2),1.5), n1=a/Math.sqrt(1-e*e*Math.pow(Math.sin(fp),2)), d=x/(n1*k0);
+  const q1=n1*Math.tan(fp)/r1, q2=d*d/2, q3=(5+3*t1+10*c1-4*c1*c1-9*e1sq)*Math.pow(d,4)/24, q4=(61+90*t1+298*c1+45*t1*t1-252*e1sq-3*c1*c1)*Math.pow(d,6)/720;
+  const lat=fp-q1*(q2-q3+q4);
+  const q5=d, q6=(1+2*t1+c1)*Math.pow(d,3)/6, q7=(5-2*c1+28*t1-3*c1*c1+8*e1sq+24*t1*t1)*Math.pow(d,5)/120;
+  const lon=(lon0*Math.PI/180)+(q5-q6+q7)/Math.cos(fp);
+  return { lat: lat*180/Math.PI, lng: lon*180/Math.PI };
+}
+function classifyIndex(v){
+  if(v <= 6) return 'Muy baja'; if(v <= 10) return 'Baja'; if(v <= 14) return 'Media'; if(v <= 18) return 'Alta'; return 'Muy alta';
+}
+function colorIndex(v){
+  if(v <= 6) return '#2a9d55'; if(v <= 10) return '#a6d96a'; if(v <= 14) return '#ffd65a'; if(v <= 18) return '#f28e2b'; return '#c62828';
+}
+function colorSubsidencia(g){ return ({1:'#006837',2:'#66bd63',3:'#ffd92f',4:'#fdae61',5:'#d7191c'})[Number(g)] || '#bdbdbd'; }
+function labelSubsidencia(g){ return ({1:'Muy baja (0–7 cm)',2:'Baja (8–15 cm)',3:'Media (16–23 cm)',4:'Alta (24–31 cm)',5:'Muy alta (32–40 cm)'})[Number(g)] || 'Sin clasificación'; }
 
 function populateFilters(){
-  fillSelect("filtroAlcaldia", unique(allSchools.map(s => s.alcaldia)));
-  fillSelect("filtroNivel", unique(allSchools.map(s => s.nivel)));
-  document.getElementById("listaCCT").innerHTML = unique(allSchools.flatMap(s => s.ccts)).map(v => `<option value="${escapeHtml(v)}"></option>`).join("");
-  document.getElementById("listaNombres").innerHTML = unique(allSchools.map(s => s.nombre)).map(v => `<option value="${escapeHtml(v)}"></option>`).join("");
+  fillSelect('filterAlcaldia', unique(state.allSchools.map(s=>s.p[CONFIG.fields.alcaldia])));
+  fillSelect('filterNivel', unique(state.allSchools.map(s=>s.p[CONFIG.fields.nivel])));
+  const need = document.getElementById('filterNeed');
+  CONFIG.maintenance.forEach(k => need.insertAdjacentHTML('beforeend', `<option value="${k}">${CONFIG.maintenanceLabels[k] || k}</option>`));
+  fillDatalist('cctList', unique(state.allSchools.flatMap(s=>s.ccts)));
+  fillDatalist('nombreList', unique(state.allSchools.map(s=>s.p[CONFIG.fields.nombre])));
 }
-function fillSelect(id, values){ const select = document.getElementById(id); const first = select.querySelector("option").outerHTML; select.innerHTML = first + values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join(""); }
-function unique(arr){ return [...new Set(arr.filter(Boolean))].sort((a,b) => a.localeCompare(b, "es")); }
+function unique(arr){ return [...new Set(arr.map(v=>String(v||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es')); }
+function fillSelect(id, values){ const el=document.getElementById(id); values.forEach(v=>el.insertAdjacentHTML('beforeend', `<option value="${escapeAttr(v)}">${escapeHTML(v)}</option>`)); }
+function fillDatalist(id, values){ document.getElementById(id).innerHTML = values.map(v=>`<option value="${escapeAttr(v)}"></option>`).join(''); }
 
-function applyFilters(){
-  const alcaldia = document.getElementById("filtroAlcaldia").value;
-  const nivel = document.getElementById("filtroNivel").value;
-  const cct = document.getElementById("buscarCCT").value.trim().toLowerCase();
-  const nombre = document.getElementById("buscarNombre").value.trim().toLowerCase();
-  const activeNeeds = [...document.querySelectorAll("#maintenanceFilters input:checked")].map(i => i.value);
-  filteredSchools = allSchools.filter(s => {
-    if(alcaldia && s.alcaldia !== alcaldia) return false;
-    if(nivel && s.nivel !== nivel) return false;
-    if(cct && !s.ccts.some(v => v.toLowerCase().includes(cct))) return false;
-    if(nombre && !s.nombre.toLowerCase().includes(nombre)) return false;
-    if(activeNeeds.length && !activeNeeds.every(f => s.needs.includes(f))) return false;
-    return true;
-  });
-  updateMap();
+function bindUI(){
+  ['filterAlcaldia','filterNivel','filterNeed'].forEach(id => document.getElementById(id).addEventListener('change', e => { state.filters[id.replace('filter','').toLowerCase()] = e.target.value; applyFilters(); if(id==='filterAlcaldia' && e.target.value) zoomToAlcaldia(e.target.value); }));
+  document.getElementById('searchCCT').addEventListener('change', e => selectByCCT(e.target.value));
+  document.getElementById('searchNombre').addEventListener('change', e => selectByName(e.target.value));
+  document.getElementById('btnClear').addEventListener('click', clearFilters);
+  document.getElementById('btnCollapse').addEventListener('click', () => { document.getElementById('sidebar').classList.add('hidden'); document.getElementById('btnOpenMenu').classList.remove('hidden'); });
+  document.getElementById('btnOpenMenu').addEventListener('click', () => { document.getElementById('sidebar').classList.remove('hidden'); document.getElementById('btnOpenMenu').classList.add('hidden'); });
+  document.getElementById('closeInfo').addEventListener('click', () => document.getElementById('infoPanel').classList.add('hidden'));
+  document.querySelectorAll('.section-toggle').forEach(b => b.addEventListener('click', () => b.closest('.collapsible').classList.toggle('open')));
+  document.getElementById('toggleLegend').addEventListener('click', () => document.getElementById('legendBody').classList.toggle('hidden'));
+  document.getElementById('toggleSubsidencias').addEventListener('change', e => toggleLayer(state.layers.subsidencias, e.target.checked, 'subLegend'));
+  document.getElementById('toggleFracturamiento').addEventListener('change', e => toggleLayer(state.layers.fracturamiento, e.target.checked));
+  document.getElementById('toggleAlcaldias').addEventListener('change', e => toggleLayer(state.layers.alcaldias, e.target.checked));
+  document.getElementById('toggleAGEB').addEventListener('change', e => toggleLayer(state.layers.ageb, e.target.checked));
+  map.on('zoomend moveend', refreshSchoolLayer);
 }
+function toggleLayer(layer,on,legendId){ on ? layer.addTo(map) : map.removeLayer(layer); if(legendId) document.getElementById(legendId).classList.toggle('hidden', !on); }
 function clearFilters(){
-  document.getElementById("filtroAlcaldia").value = ""; document.getElementById("filtroNivel").value = ""; document.getElementById("buscarCCT").value = ""; document.getElementById("buscarNombre").value = "";
-  document.querySelectorAll("#maintenanceFilters input").forEach(i => i.checked = false);
-  filteredSchools = [...allSchools]; updateMap(); if(filteredSchools.length) fitToSchools(filteredSchools);
+  state.filters = { alcaldia:'', nivel:'', need:'', cct:'', nombre:'' };
+  ['filterAlcaldia','filterNivel','filterNeed','searchCCT','searchNombre'].forEach(id=>document.getElementById(id).value='');
+  applyFilters();
 }
-
-function updateMap(){ drawSchools(); drawSummaries(); updateKpis(); updateVisibilityByZoom(); }
-function drawSchools(){
-  schoolLayer.clearLayers();
-  filteredSchools.forEach(s => {
-    const marker = L.circleMarker([s.lat, s.lon], {radius:7, color:"#ffffff", weight:1.4, fillColor:colorByIndex(s.indice), fillOpacity:.9});
-    marker.bindPopup(buildPopup(s), {maxWidth:280}); marker.on("click", () => openDetail(s)); marker.schoolData = s; schoolLayer.addLayer(marker);
+function applyFilters(){
+  const f = state.filters;
+  state.filteredSchools = state.allSchools.filter(s =>
+    (!f.alcaldia || String(s.p[CONFIG.fields.alcaldia]||'') === f.alcaldia) &&
+    (!f.nivel || String(s.p[CONFIG.fields.nivel]||'') === f.nivel) &&
+    (!f.need || Number(s.p[f.need]) === 1)
+  );
+  updateMiniStats(); refreshSchoolLayer();
+}
+function refreshSchoolLayer(){
+  map.removeLayer(state.layers.schools); map.removeLayer(state.layers.summary);
+  state.layers.schools.clearLayers(); state.layers.summary.clearLayers(); state.schoolMarkers.clear();
+  const z = map.getZoom();
+  if(z <= CONFIG.zoom.alcaldiaMax && state.geo.alcaldias?.features?.length) drawSummary(state.geo.alcaldias, CONFIG.fields.alcaldia);
+  else if(z <= CONFIG.zoom.agebMax && state.geo.ageb?.features?.length) drawSummary(state.geo.ageb, null);
+  else drawSchoolMarkers();
+}
+function drawSchoolMarkers(){
+  state.filteredSchools.forEach(s => {
+    const marker = L.circleMarker([s.lat, s.lng], { radius:7, color:'#fff', weight:1.5, fillColor:colorIndex(s.indice), fillOpacity:.95 })
+      .bindPopup(schoolPopup(s), { maxWidth:260 })
+      .on('click', () => openSchoolPanel(s));
+    state.schoolMarkers.set(s.id, marker); state.layers.schools.addLayer(marker);
   });
-  if(filteredSchools.length && !map._initialFitDone){ fitToSchools(filteredSchools); map._initialFitDone = true; }
+  state.layers.schools.addTo(map);
 }
-function buildPopup(s){
-  const needs = s.needs.map(f => `<li>${escapeHtml(MAINTENANCE_LABELS[f] || f)}</li>`).join("");
-  return `<div class="popup-title">${escapeHtml(s.nombre)}</div><div class="popup-meta">CCT: ${escapeHtml(s.ccts.join(", ") || "Sin dato")}<br>Alcaldía: ${escapeHtml(s.alcaldia || "Sin dato")}<br>Índice: <strong>${s.indice}</strong> (${s.clasificacion})</div><details class="popup-details"><summary>Necesidades detectadas</summary><ul>${needs || "<li>Sin necesidades registradas</li>"}</ul></details>`;
+function drawSummary(geo, alcaldiaField){
+  const groups = [];
+  geo.features.forEach((f,i) => {
+    const b = L.geoJSON(f).getBounds(); if(!b.isValid()) return;
+    let schools;
+    if(alcaldiaField){ const name = bestProp(f.properties, ['NOMGEO','nomgeo','alcaldia','NOM_MUN','nombre']); schools = state.filteredSchools.filter(s => norm(s.p[CONFIG.fields.alcaldia]) === norm(name)); }
+    else { schools = state.filteredSchools.filter(s => b.contains([s.lat, s.lng])); }
+    if(schools.length) groups.push({ center:b.getCenter(), count:schools.length, avg: schools.reduce((a,s)=>a+s.indice,0)/schools.length, i });
+  });
+  groups.forEach(g => {
+    const size = Math.max(34, Math.min(62, 28 + Math.sqrt(g.count)*4));
+    const icon = L.divIcon({ html:`<div class="summary-marker" style="width:${size}px;height:${size}px;background:${colorIndex(g.avg)}">${g.count}</div>`, className:'', iconSize:[size,size] });
+    L.marker(g.center, { icon }).addTo(state.layers.summary).bindTooltip(`Escuelas: ${g.count}<br>Promedio índice: ${g.avg.toFixed(1)}`);
+  });
+  state.layers.summary.addTo(map);
 }
-function openDetail(s){
-  document.getElementById("detailPanel").classList.add("open");
-  document.getElementById("detailTitle").textContent = s.nombre;
-  const needs = s.needs.map(f => `<li>${escapeHtml(MAINTENANCE_LABELS[f] || f)}</li>`).join("");
-  document.getElementById("detailContent").innerHTML = `<dl><dt>CCT</dt><dd>${escapeHtml(s.ccts.join(", ") || "Sin dato")}</dd><dt>Alcaldía</dt><dd>${escapeHtml(s.alcaldia || "Sin dato")}</dd><dt>Nivel</dt><dd>${escapeHtml(s.nivel || "Sin dato")}</dd><dt>Índice</dt><dd>${s.indice}</dd><dt>Clasificación</dt><dd><span class="badge ${classSlug(s.clasificacion)}">${s.clasificacion}</span></dd></dl><h3>Resumen de mantenimiento</h3><p>${maintenanceSummary(s)}</p><h3>Necesidades detectadas</h3><ul class="need-list">${needs || "<li>Sin necesidades registradas</li>"}</ul><details><summary>Mostrar todas las variables con Sí/No</summary><dl>${MAINTENANCE_FIELDS.map(f => `<dt>${escapeHtml(MAINTENANCE_LABELS[f] || f)}</dt><dd>${s.needs.includes(f) ? "Sí" : "No"}</dd>`).join("")}</dl></details>`;
+function updateMiniStats(){
+  const n = state.filteredSchools.length, avg = n ? state.filteredSchools.reduce((a,s)=>a+s.indice,0)/n : 0;
+  document.getElementById('statTotal').textContent = n.toLocaleString('es-MX');
+  document.getElementById('statProm').textContent = avg.toFixed(1);
 }
-function maintenanceSummary(s){ if(s.indice <= 6) return "El inmueble presenta un nivel bajo de necesidades registradas. Se sugiere seguimiento preventivo."; if(s.indice <= 10) return "El inmueble presenta necesidades puntuales de mantenimiento. Se recomienda revisión operativa."; if(s.indice <= 14) return "El inmueble presenta un nivel medio de necesidades. Conviene priorizar una visita técnica."; if(s.indice <= 18) return "El inmueble presenta alta concentración de necesidades. Se recomienda atención prioritaria."; return "El inmueble presenta muy alta concentración de necesidades. Se recomienda intervención prioritaria y revisión integral."; }
-
-function drawBoundaries(){
-  if(alcaldiasGeoJSON){ alcaldiaBoundaryLayer = L.geoJSON(alcaldiasGeoJSON, {style:{color:"#1f4e79", weight:1, fillOpacity:0, opacity:.55}}).addTo(map); }
-  if(agebsGeoJSON){ agebBoundaryLayer = L.geoJSON(agebsGeoJSON, {style:{color:"#64748b", weight:.5, fillOpacity:0, opacity:.25}}); }
+function schoolPopup(s){
+  const needs = needsOf(s).slice(0,8).map(x=>`<li>${escapeHTML(x)}</li>`).join('') || '<li>Sin necesidades registradas</li>';
+  return `<div class="popup-title">${escapeHTML(s.p[CONFIG.fields.nombre]||'Sin nombre')}</div><div class="popup-meta">CCT: ${escapeHTML(s.ccts.join(', ')||'N/D')}<br>Índice: ${s.indice} · ${s.clase}</div><details class="popup-details"><summary>Necesidades detectadas</summary><ul>${needs}</ul></details>`;
 }
-function drawSummaries(){ alcaldiaSummaryLayer.clearLayers(); agebSummaryLayer.clearLayers(); if(alcaldiasGeoJSON) drawPolygonSummary(alcaldiasGeoJSON, alcaldiaSummaryLayer, "alcaldía"); else drawAttributeSummary("alcaldia", alcaldiaSummaryLayer); if(agebsGeoJSON) drawPolygonSummary(agebsGeoJSON, agebSummaryLayer, "AGEB"); }
-function drawAttributeSummary(attr, layer){ const groups = groupBy(filteredSchools, s => s[attr] || "Sin dato"); Object.entries(groups).forEach(([name, schools]) => addSummaryMarker(layer, [avg(schools.map(s => s.lat)), avg(schools.map(s => s.lon))], name, schools)); }
-function drawPolygonSummary(geojson, layer, type){ geojson.features.forEach(feature => { const schools = filteredSchools.filter(s => pointInFeature([s.lon, s.lat], feature)); if(!schools.length) return; addSummaryMarker(layer, getFeatureCenter(feature), getAreaName(feature, type), schools); }); }
-function addSummaryMarker(layer, latlng, name, schools){
-  const count = schools.length; const mean = avg(schools.map(s => s.indice)); const size = Math.max(34, Math.min(64, 28 + Math.sqrt(count) * 4));
-  const icon = L.divIcon({className:"", html:`<div class="summary-marker" style="width:${size}px;height:${size}px">${count}</div>`, iconSize:[size,size], iconAnchor:[size/2,size/2]});
-  const marker = L.marker(latlng, {icon}); marker.bindPopup(`<div class="popup-title">${escapeHtml(name)}</div><div class="popup-meta">Escuelas: <strong>${count}</strong><br>Promedio del índice: <strong>${mean.toFixed(1)}</strong><br>Alta y muy alta: <strong>${schools.filter(s => s.indice >= 15).length}</strong></div>`); layer.addLayer(marker);
+function openSchoolPanel(s){
+  const needs = needsOf(s);
+  const html = `<h2>${escapeHTML(s.p[CONFIG.fields.nombre]||'Sin nombre')}</h2><div class="sub">${escapeHTML(s.ccts.join(', ')||'CCT no disponible')}</div><span class="badge" style="background:${colorIndex(s.indice)}22;color:${colorIndex(s.indice)}">${s.clase}</span><div class="info-grid"><div><span>Alcaldía</span>${escapeHTML(s.p[CONFIG.fields.alcaldia]||'N/D')}</div><div><span>Nivel</span>${escapeHTML(s.p[CONFIG.fields.nivel]||'N/D')}</div><div><span>Índice</span>${s.indice}</div><div><span>Necesidades</span>${needs.length}</div></div><h3>Resumen</h3><p>${summaryText(s)}</p><h3>Necesidades detectadas</h3><ul class="need-list">${(needs.length?needs:['Sin necesidades registradas']).map(n=>`<li>${escapeHTML(n)}</li>`).join('')}</ul>`;
+  document.getElementById('infoContent').innerHTML = html; document.getElementById('infoPanel').classList.remove('hidden');
 }
-function updateVisibilityByZoom(){
-  const z = map.getZoom(); map.removeLayer(alcaldiaSummaryLayer); map.removeLayer(agebSummaryLayer); map.removeLayer(schoolLayer);
-  if(z < 11){ alcaldiaSummaryLayer.addTo(map); if(agebBoundaryLayer && map.hasLayer(agebBoundaryLayer)) map.removeLayer(agebBoundaryLayer); }
-  else if(z < 13){ agebSummaryLayer.addTo(map); if(agebBoundaryLayer && !map.hasLayer(agebBoundaryLayer)) agebBoundaryLayer.addTo(map); }
-  else{ schoolLayer.addTo(map); if(agebBoundaryLayer && !map.hasLayer(agebBoundaryLayer)) agebBoundaryLayer.addTo(map); }
+function needsOf(s){ return CONFIG.maintenance.filter(k => Number(s.p[k]) === 1).map(k => CONFIG.maintenanceLabels[k] || k); }
+function summaryText(s){
+  if(s.indice <= 6) return 'El inmueble presenta una prioridad baja de atención según el índice de mantenimiento.';
+  if(s.indice <= 10) return 'El inmueble presenta necesidades moderadas y puede incorporarse a programación preventiva.';
+  if(s.indice <= 14) return 'El inmueble requiere seguimiento técnico y priorización intermedia.';
+  if(s.indice <= 18) return 'El inmueble concentra varias necesidades y requiere atención prioritaria.';
+  return 'El inmueble se ubica en prioridad muy alta por concentración de necesidades de mantenimiento.';
 }
-function updateKpis(){ const total = filteredSchools.length; const mean = total ? avg(filteredSchools.map(s => s.indice)) : 0; const high = filteredSchools.filter(s => s.indice >= 15).length; document.getElementById("kpiTotal").textContent = total.toLocaleString("es-MX"); document.getElementById("kpiPromedio").textContent = mean.toFixed(1); document.getElementById("kpiAlta").textContent = high.toLocaleString("es-MX"); }
-function fitToSchools(schools){ const bounds = L.latLngBounds(schools.map(s => [s.lat, s.lon])); map.fitBounds(bounds, {padding:[35,35], maxZoom:13}); }
-
-function zoomToMatchedSchool(type){
-  const value = (type === "cct" ? document.getElementById("buscarCCT").value : document.getElementById("buscarNombre").value).trim().toLowerCase();
-  if(!value) return;
-  const found = filteredSchools.find(s => type === "cct" ? s.ccts.some(c => c.toLowerCase() === value) : s.nombre.toLowerCase() === value) || filteredSchools[0];
-  if(found){ map.setView([found.lat, found.lon], 16); openDetail(found); }
+function selectByCCT(value){ if(!value) return; const s = state.allSchools.find(x => x.ccts.some(c => norm(c) === norm(value))); if(s) focusSchool(s); }
+function selectByName(value){ if(!value) return; const s = state.allSchools.find(x => norm(x.p[CONFIG.fields.nombre]) === norm(value)); if(s) focusSchool(s); }
+function focusSchool(s){
+  state.filters.alcaldia=''; state.filters.nivel=''; state.filters.need=''; applyFilters();
+  map.setView([s.lat,s.lng], 17);
+  setTimeout(()=>{ drawSchoolMarkers(); const m = state.schoolMarkers.get(s.id); if(m){ m.openPopup(); openSchoolPanel(s); } }, 250);
 }
-function zoomToSelectedAlcaldia(){
-  const selected = document.getElementById("filtroAlcaldia").value; if(!selected) return;
-  if(alcaldiaBoundaryLayer){ let found = null; alcaldiaBoundaryLayer.eachLayer(layer => { const name = getAreaName(layer.feature, "alcaldía").toUpperCase(); if(name === selected.toUpperCase()) found = layer; }); if(found){ map.fitBounds(found.getBounds(), {padding:[30,30]}); return; } }
-  const schools = filteredSchools.filter(s => s.alcaldia === selected); if(schools.length) fitToSchools(schools);
+function zoomToAlcaldia(name){
+  let found=null; state.layers.alcaldias.eachLayer(l => { const p=l.feature?.properties||{}; const n=bestProp(p,['NOMGEO','nomgeo','alcaldia','NOM_MUN','nombre']); if(norm(n)===norm(name)) found=l; });
+  if(found) map.fitBounds(found.getBounds(), { padding:[40,40] });
 }
-
-function drawExtraLayers(){
-  if(subsidenciasGeoJSON){
-    subsidenciaLayer = L.geoJSON(subsidenciasGeoJSON, {style: styleSubsidencia, onEachFeature: (feature, layer) => { const v = getSubsidenciaValue(feature.properties || {}); const label = classifySubsidencia(v); layer.bindPopup(`<div class="popup-title">Subsidencia</div><div class="popup-meta">Rango: <strong>${escapeHtml(label)}</strong><br>Valor: <strong>${Number.isFinite(v) ? v + " cm" : "Sin dato"}</strong></div>`); }});
-  }
-  if(fracturamientoGeoJSON){
-    fracturamientoLayer = L.geoJSON(fracturamientoGeoJSON, {style: fractureStyle(false), onEachFeature: onEachFracture});
-  }
+function onSubFeature(feature, layer){
+  const g = feature.properties?.gridcode;
+  layer.bindTooltip(`Subsidencia: ${labelSubsidencia(g)}`);
 }
-function toggleSubsidencias(checked){ if(!subsidenciaLayer) return; if(checked){ subsidenciaLayer.addTo(map); document.getElementById("subsidenciaLegend").classList.remove("hidden"); } else { map.removeLayer(subsidenciaLayer); document.getElementById("subsidenciaLegend").classList.add("hidden"); } }
-function toggleFracturamiento(checked){ if(!fracturamientoLayer) return; if(checked) fracturamientoLayer.addTo(map); else { map.removeLayer(fracturamientoLayer); selectedFractureLayer = null; } }
-function getSubsidenciaValue(p){
-  const candidates = ["gridcode","GRIDCODE","value","Value","VALUE","rango","RANGO","subsidencia","SUBSIDENCIA","cm","CM"];
-  for(const c of candidates){ const n = Number(p[c]); if(Number.isFinite(n)) return n; }
-  for(const value of Object.values(p)){ const n = Number(value); if(Number.isFinite(n) && n >= 0 && n <= 40) return n; }
-  return NaN;
-}
-function classifySubsidencia(v){ if(!Number.isFinite(v)) return "Sin dato"; if(v <= 7) return "Muy bajo"; if(v <= 15) return "Bajo"; if(v <= 23) return "Medio"; if(v <= 31) return "Alto"; return "Muy alto"; }
-function colorSubsidencia(v){ if(!Number.isFinite(v)) return "#94a3b8"; if(v <= 7) return "#006837"; if(v <= 15) return "#78c679"; if(v <= 23) return "#ffd166"; if(v <= 31) return "#f97316"; return "#dc2626"; }
-function styleSubsidencia(feature){ const v = getSubsidenciaValue(feature.properties || {}); return {color:"#ffffff", weight:.3, opacity:.7, fillColor:colorSubsidencia(v), fillOpacity:.48}; }
-function fractureStyle(selected){ return {color:selected ? "#0f172a" : "#7c2d12", weight:selected ? 4 : 2.2, opacity:selected ? 1 : .8}; }
-function onEachFracture(feature, layer){
-  const info = fractureInfo(feature.properties || {});
-  layer.bindTooltip(info.short, {sticky:true, className:"fracture-tooltip"});
-  layer.on("mouseover", () => { if(layer !== selectedFractureLayer) layer.setStyle({weight:3.5, opacity:1}); });
-  layer.on("mouseout", () => { if(layer !== selectedFractureLayer) layer.setStyle(fractureStyle(false)); });
-  layer.on("click", () => {
-    if(selectedFractureLayer && selectedFractureLayer !== layer) selectedFractureLayer.setStyle(fractureStyle(false));
-    selectedFractureLayer = layer; layer.setStyle(fractureStyle(true));
-    const bounds = layer.getBounds ? layer.getBounds() : null; if(bounds && bounds.isValid()) map.fitBounds(bounds, {padding:[40,40], maxZoom:16});
-    layer.bindPopup(`<div class="popup-title">Fracturamiento</div><div class="popup-meta">${info.html}</div>`).openPopup();
+function onFractureFeature(feature, layer){
+  const p = feature.properties || {}; const dist = bestProp(p, ['distancia','Distancia','DISTANCIA','length','Length','Shape_Leng','Shape_Length','LONGITUD']);
+  const txt = `Fracturamiento${dist ? `<br>Distancia: ${escapeHTML(dist)}` : ''}`;
+  layer.bindTooltip(txt, { sticky:true });
+  layer.on('click', () => {
+    if(state.selectedFracture) state.selectedFracture.setStyle({ color:'#552583', weight:2.2 });
+    state.selectedFracture = layer; layer.setStyle({ color:'#111827', weight:4 });
+    try{ map.fitBounds(layer.getBounds(), { padding:[50,50], maxZoom:15 }); }catch(e){}
+    layer.bindPopup(txt).openPopup();
   });
 }
-function fractureInfo(p){
-  const keys = Object.keys(p || {});
-  const distanceKey = keys.find(k => /dist|long|length|metros|mtrs|km/i.test(k));
-  if(distanceKey) return {short:`${distanceKey}: ${p[distanceKey]}`, html:`${escapeHtml(distanceKey)}: <strong>${escapeHtml(p[distanceKey])}</strong>`};
-  const rows = keys.slice(0, 6).map(k => `${escapeHtml(k)}: <strong>${escapeHtml(p[k])}</strong>`).join("<br>");
-  return {short: rows ? rows.replace(/<[^>]*>/g, " ") : "Fracturamiento", html: rows || "Sin atributos disponibles"};
-}
+function bestProp(p, keys){ for(const k of keys){ if(p && p[k] !== undefined && p[k] !== null && String(p[k]).trim() !== '') return p[k]; } return ''; }
+function norm(v){ return String(v||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+function escapeHTML(v){ return String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+function escapeAttr(v){ return escapeHTML(v); }
 
-function getAreaName(feature, fallback){ const p = feature.properties || {}; const candidates = ["alcaldia","NOMGEO","nomgeo","NOM_ALC","NOMBRE","nombre","municipio","CVEGEO","cvegeo","AGEB","ageb","CVE_AGEB"]; for(const c of candidates){ if(cleanText(p[c])) return cleanText(p[c]); } return fallback; }
-function getFeatureCenter(feature){ try{ const coords = []; collectCoords(feature.geometry.coordinates, coords); return [avg(coords.map(c => c[1])), avg(coords.map(c => c[0]))]; }catch(e){ return [19.35, -99.13]; } }
-function collectCoords(obj, out){ if(typeof obj[0] === "number") out.push(obj); else obj.forEach(o => collectCoords(o, out)); }
-function pointInFeature(point, feature){ const geom = feature.geometry; if(!geom) return false; if(geom.type === "Polygon") return pointInPolygon(point, geom.coordinates); if(geom.type === "MultiPolygon") return geom.coordinates.some(poly => pointInPolygon(point, poly)); return false; }
-function pointInPolygon(point, polygon){ const insideOuter = pointInRing(point, polygon[0]); if(!insideOuter) return false; for(let i=1;i<polygon.length;i++){ if(pointInRing(point, polygon[i])) return false; } return true; }
-function pointInRing(point, ring){ const x = point[0], y = point[1]; let inside = false; for(let i=0, j=ring.length-1; i<ring.length; j=i++){ const xi = ring[i][0], yi = ring[i][1]; const xj = ring[j][0], yj = ring[j][1]; const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-12) + xi); if(intersect) inside = !inside; } return inside; }
-function groupBy(arr, fn){ return arr.reduce((acc, item) => { const key = fn(item); acc[key] = acc[key] || []; acc[key].push(item); return acc; }, {}); }
-function avg(arr){ if(!arr.length) return 0; return arr.reduce((a,b) => a + Number(b || 0), 0) / arr.length; }
-function escapeHtml(str){ return String(str ?? "").replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m])); }
+init().catch(err => { console.error(err); alert('No se pudo iniciar el visor. Revisa la consola del navegador.'); });
