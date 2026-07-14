@@ -11,8 +11,8 @@
 </head>
 <body>
 <header class="topbar">
-  <div><h1>Visor integral de infraestructura educativa RM08</h1><p>Mantenimiento, mejoras y potencialidad de riesgos en escuelas de la Ciudad de México</p></div>
-  <nav><a href="estadisticas.html">Estadísticas generales</a></nav>
+  <div><h1>Visor integral de infraestructura educativa RM08</h1><p>Mantenimiento, mejoras y observaciones territoriales en escuelas de la Ciudad de México</p></div>
+  <nav><a id="statsLink" href="estadisticas.html">Estadísticas generales</a></nav>
 </header>
 <main class="layout" id="layout">
   <aside class="sidebar" id="sidebar">
@@ -21,7 +21,7 @@
     <section class="panel">
       <h2>Visualización</h2>
       <label class="inline-check"><input type="checkbox" id="toggleSchools" checked><span>Mostrar escuelas</span></label>
-      <button id="modeMaintenance" class="mode-button active" type="button">Índice de mantenimiento</button>
+      <button id="modeMaintenance" class="mode-button active" type="button">Necesidades de mantenimiento</button>
     </section>
 
     <section class="panel">
@@ -34,27 +34,42 @@
     </section>
 
     <section class="panel">
-      <h2>Necesidades de mantenimiento</h2><p class="hint">Puedes seleccionar una o varias variables. El resumen mostrará únicamente la selección activa.</p>
+      <h2>Necesidades de mantenimiento</h2><p class="hint">Selecciona una o varias variables. El resumen y el mapa mostrarán únicamente las escuelas que cumplen la selección.</p>
       <div id="maintenanceFilters" class="checklist"></div>
     </section>
 
     <section class="panel collapsible-panel">
       <button id="toggleMejoras" class="collapse-title" aria-expanded="false"><span>Mejoras</span><span id="mejorasArrow">›</span></button>
       <div id="mejorasBody" class="collapsible-body hidden">
-        <label class="inline-check"><input type="radio" name="themeMode" value="mejora_mantenimiento"><span>Programa 1, 2, 3 por mi Escuela</span></label>
-        <label class="inline-check"><input type="radio" name="themeMode" value="reforzamiento"><span>Reforzamiento estructural</span></label>
-        <label class="inline-check"><input type="radio" name="themeMode" value="ambas"><span>Escuelas con ambas mejoras</span></label>
+        <p class="hint">Selecciona el programa o tipo de apoyo que deseas consultar.</p>
+        <label class="inline-check"><input type="radio" name="themeMode" value="fam_regular"><span>FAM Regular 2025</span></label>
+        <label class="inline-check"><input type="radio" name="themeMode" value="programa_123"><span>1, 2, 3 por mi Escuela</span></label>
+        <label class="inline-check"><input type="radio" name="themeMode" value="fam_potenciado"><span>FAM Potenciado 2025</span></label>
+        <label class="inline-check"><input type="radio" name="themeMode" value="fam_reforzamiento"><span>FAM Reforzamiento estructural</span></label>
+        <label class="inline-check"><input type="radio" name="themeMode" value="ambas"><span>Escuelas con mantenimiento y reforzamiento</span></label>
       </div>
     </section>
 
     <section class="panel collapsible-panel">
-      <button id="toggleRiesgos" class="collapse-title" aria-expanded="false"><span>Riesgos</span><span id="riesgosArrow">›</span></button>
+      <button id="toggleRiesgos" class="collapse-title" aria-expanded="false"><span>Observaciones territoriales</span><span id="riesgosArrow">›</span></button>
       <div id="riesgosBody" class="collapsible-body hidden">
-        <label class="inline-check"><input type="radio" name="themeMode" value="potencialidad"><span>Potencialidad territorial</span></label>
-        <label class="inline-check"><input type="radio" name="themeMode" value="atencion"><span>Índice de atención prioritaria</span></label>
+        <p class="hint">Estas opciones identifican escuelas que ameritan revisión por su cercanía a fracturamientos o por ubicarse en zonas de subsidencia alta.</p>
+        <label class="inline-check"><input type="radio" name="themeMode" value="obs_fractura"><span>Revisión por cercanía a fracturamiento</span></label>
+        <label class="inline-check"><input type="radio" name="themeMode" value="obs_subsidencia"><span>Seguimiento por subsidencia alta</span></label>
+        <label class="inline-check"><input type="radio" name="themeMode" value="obs_combinada"><span>Observación territorial combinada</span></label>
         <hr class="soft-rule">
         <label class="inline-check"><input type="checkbox" id="toggleSubsidencias"><span>Mostrar subsidencias</span></label>
         <label class="inline-check"><input type="checkbox" id="toggleFracturamiento"><span>Mostrar fracturamiento</span></label>
+      </div>
+    </section>
+
+    <section class="panel collapsible-panel">
+      <button id="toggleDownloads" class="collapse-title" aria-expanded="false"><span>Descargar bases de datos</span><span id="downloadsArrow">›</span></button>
+      <div id="downloadsBody" class="collapsible-body hidden download-list">
+        <a href="data/basededatosrm08cc.csv" download>Base RM08</a>
+        <a href="data/mantenimiento.csv" download>FAM Regular 2025 y 1, 2, 3 por mi Escuela</a>
+        <a href="data/fam_potenciado_2025.csv" download>FAM Potenciado 2025</a>
+        <a href="data/reforzamiento.csv" download>FAM Reforzamiento estructural</a>
       </div>
     </section>
 
@@ -62,8 +77,8 @@
       <h2 id="summaryTitle">Resumen visible</h2>
       <div class="kpis dynamic-kpis">
         <div><strong id="kpi1">0</strong><span id="kpiLabel1">Escuelas</span></div>
-        <div><strong id="kpi2">0.0</strong><span id="kpiLabel2">Promedio</span></div>
-        <div><strong id="kpi3">0</strong><span id="kpiLabel3">Alta y muy alta</span></div>
+        <div><strong id="kpi2">0</strong><span id="kpiLabel2">Mayor número de necesidades</span></div>
+        <div><strong id="kpi3">0</strong><span id="kpiLabel3">Con observación</span></div>
         <div><strong id="kpi4">—</strong><span id="kpiLabel4">Tema</span></div>
       </div>
     </section>
@@ -72,7 +87,7 @@
   <button id="showSidebar" class="show-sidebar hidden" title="Mostrar menú">Menú</button>
   <section class="maparea">
     <div id="map"></div>
-    <div id="legend" class="legend"><div class="legend-head"><strong id="legendTitle">Índice de mantenimiento</strong><button id="toggleLegend">−</button></div><div id="legendBody"></div></div>
+    <div id="legend" class="legend"><div class="legend-head"><strong id="legendTitle">Necesidades de mantenimiento</strong><button id="toggleLegend">−</button></div><div id="legendBody"></div></div>
     <div id="subsidenciaLegend" class="legend extra-legend hidden"><div class="legend-head"><strong>Subsidencia acumulada</strong><button id="toggleSubLegend">−</button></div><div id="subLegendBody"><div><span class="swatch square s-muy-bajo"></span>0 a 7 cm Muy bajo</div><div><span class="swatch square s-bajo"></span>8 a 15 cm Bajo</div><div><span class="swatch square s-medio"></span>16 a 23 cm Medio</div><div><span class="swatch square s-alto"></span>24 a 31 cm Alto</div><div><span class="swatch square s-muy-alto"></span>32 a 40 cm Muy alto</div></div></div>
     <aside id="detailPanel" class="detail-panel"><button id="closeDetail" class="close">×</button><h2 id="detailTitle">Seleccione una escuela</h2><div id="detailContent" class="detail-content"><p>Haga clic en un punto del mapa para consultar la información.</p></div></aside>
   </section>
