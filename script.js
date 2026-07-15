@@ -70,7 +70,25 @@ function styleSubsidencia(f){const c=Number(f.properties?.gridcode);return{color
 function subClass(c){return({1:'Muy baja',2:'Baja',3:'Media',4:'Alta',5:'Muy alta'})[c]||'No clasificada'}
 function fractureStyle(selected){return{color:selected?'#0f172a':'#7c2d12',weight:selected?4:2.2,opacity:selected?1:.8}}
 function onEachFracture(f,l){const p=f.properties||{},len=Number(p.MAGNI_NUM||p.Shape_Leng||0);l.bindTooltip(len?`Longitud: ${len.toFixed(1)} m`:'Fracturamiento',{sticky:true,className:'fracture-tooltip'});l.on('click',()=>{if(selectedFractureLayer&&selectedFractureLayer!==l)selectedFractureLayer.setStyle(fractureStyle(false));selectedFractureLayer=l;l.setStyle(fractureStyle(true));l.bindPopup(`<div class="popup-title">Fracturamiento</div><div class="popup-meta">Tipo: <strong>${escapeHtml(p.TIPO||'No registrado')}</strong><br>Longitud: <strong>${len?len.toFixed(1)+' m':'No registrada'}</strong></div>`).openPopup()})}
-function populateFilters(){fillSelect('filtroAlcaldia',unique(allSchools.map(s=>s.alcaldia)));fillSelect('filtroNivel',unique(allSchools.map(s=>s.nivel)));q('listaCCT').innerHTML=unique(allSchools.flatMap(s=>s.ccts)).map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');q('listaNombres').innerHTML=unique(allSchools.map(s=>s.nombre)).map(v=>`<option value="${escapeHtml(v)}"></option>`).join('')}
+function populateFilters(){
+  const alcaldias=unique(
+    allSchools
+      .map(s=>normalizeAlcaldia(s.alcaldia))
+      .filter(Boolean)
+  );
+
+  // Unificar también el valor guardado en cada escuela para que los filtros coincidan.
+  allSchools.forEach(s=>{
+    s.alcaldia=normalizeAlcaldia(s.alcaldia);
+  });
+
+  fillSelect('filtroAlcaldia',alcaldias);
+  fillSelect('filtroNivel',unique(allSchools.map(s=>s.nivel)));
+  q('listaCCT').innerHTML=unique(allSchools.flatMap(s=>s.ccts))
+    .map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');
+  q('listaNombres').innerHTML=unique(allSchools.map(s=>s.nombre))
+    .map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');
+}
 function fillSelect(id,vals){const el=q(id),first=el.querySelector('option').outerHTML;el.innerHTML=first+vals.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('')}
 
 function resetSelectionsForSchoolSearch(){
@@ -178,14 +196,22 @@ function toBinary(v){return Number(v)===1?1:0}
 
 function normalizeAlcaldia(value){
   const original=cleanText(value);
-  const key=original.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+  if(!original)return '';
+  const key=original
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toUpperCase();
+
   const names={
     'ALVARO OBREGON':'ÁLVARO OBREGÓN',
     'BENITO JUAREZ':'BENITO JUÁREZ',
     'COYOACAN':'COYOACÁN',
     'CUAUHTEMOC':'CUAUHTÉMOC'
   };
-  return names[key]||original.toUpperCase();
+
+  return names[key]||key;
 }
 
 function normalizeCCT(v){return cleanText(v).replace(/\s+/g,'').toUpperCase()}
