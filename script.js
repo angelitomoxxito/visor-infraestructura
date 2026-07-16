@@ -11,14 +11,13 @@ let schoolLayer=L.markerClusterGroup({showCoverageOnHover:false,maxClusterRadius
 const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView([19.35,-99.13],10);
 const baseLayers={'Mapa claro':L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:20,attribution:'© OpenStreetMap © CARTO'}),'OpenStreetMap':L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}),'Satélite':L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles © Esri'}),'Mapa oscuro':L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:20,attribution:'© OpenStreetMap © CARTO'})};
 baseLayers['Mapa claro'].addTo(map);L.control.layers(baseLayers,{}, {collapsed:true,position:'bottomright'}).addTo(map);schoolLayer.addTo(map);
-document.addEventListener('DOMContentLoaded',init);
-async function init(){buildMaintenanceMenu();bindUI();const [schools,alcaldias,agebs,subs,fracs,mant,ref,famPot]=await Promise.all([loadSchools(),fetchJsonSafe(DATA_PATHS.alcaldias),fetchJsonSafe(DATA_PATHS.agebs),loadSubsidencias(),fetchJsonSafe(DATA_PATHS.fracturamiento),fetchJsonSafe(DATA_PATHS.mantenimiento),fetchJsonSafe(DATA_PATHS.reforzamiento),fetchJsonSafe(DATA_PATHS.famPotenciado)]);allSchools=schools;joinImprovements(allSchools,mant||[],ref||[],famPot||[]);filteredSchools=[...allSchools];alcaldiasGeoJSON=alcaldias;agebsGeoJSON=agebs;subsidenciasGeoJSON=subs;fracturamientoGeoJSON=fracs;drawBoundaries();drawExtraLayers();populateFilters();restoreState();updateMap();}
+document.addEventListener('DOMContentLoaded',()=>{
+  init().catch(error=>{
+    console.error('Error al iniciar el visor:',error);
+  });
+});
+async function init(){buildMaintenanceMenu();bindUI();const [schools,alcaldias,agebs,subs,fracs,mant,ref,famPot]=await Promise.all([loadSchools(),fetchJsonSafe(DATA_PATHS.alcaldias),fetchJsonSafe(DATA_PATHS.agebs),fetchJsonSafe(DATA_PATHS.subsidencias),fetchJsonSafe(DATA_PATHS.fracturamiento),fetchJsonSafe(DATA_PATHS.mantenimiento),fetchJsonSafe(DATA_PATHS.reforzamiento),fetchJsonSafe(DATA_PATHS.famPotenciado)]);allSchools=schools;joinImprovements(allSchools,mant||[],ref||[],famPot||[]);filteredSchools=[...allSchools];alcaldiasGeoJSON=alcaldias;agebsGeoJSON=agebs;subsidenciasGeoJSON=subs;fracturamientoGeoJSON=fracs;drawBoundaries();drawExtraLayers();populateFilters();restoreState();updateMap();}
 async function loadSchools(){const geo=await fetchJsonSafe(DATA_PATHS.schoolsGeoJSON);if(geo?.features?.length)return geo.features.map(normalizeFeature).filter(Boolean);return new Promise((resolve,reject)=>Papa.parse(DATA_PATHS.schoolsCSV,{download:true,header:true,dynamicTyping:true,skipEmptyLines:true,complete:r=>resolve(r.data.map(normalizeRow).filter(Boolean)),error:reject}));}
-async function loadSubsidencias(){
-  const primary=await fetchJsonSafe(DATA_PATHS.subsidencias);
-  if(primary)return primary;
-  return await fetchJsonSafe('data/subsidencias(1).json');
-}
 async function fetchJsonSafe(url){try{const r=await fetch(url,{cache:'no-store'});return r.ok?await r.json():null}catch{return null}}
 function normalizeFeature(f,i){const p=f.properties||{},c=f.geometry?.coordinates||[];const lon=Number(c[0]??p[FIELDS.x]),lat=Number(c[1]??p[FIELDS.y]);return Number.isFinite(lat)&&Number.isFinite(lon)?normalizeCommon(p,lat,lon,i):null}
 function normalizeRow(p,i){const lon=Number(p[FIELDS.x]),lat=Number(p[FIELDS.y]);return Number.isFinite(lat)&&Number.isFinite(lon)?normalizeCommon(p,lat,lon,i):null}
@@ -41,8 +40,11 @@ function clearFilters(){
   q('buscarCCT').value='';
   q('buscarNombre').value='';
 
-  document.querySelectorAll('#maintenanceFilters input').forEach(i=>i.checked=false);
-  document.querySelectorAll('input[name="themeMode"]').forEach(r=>r.checked=false);
+  document.querySelectorAll('#maintenanceFilters input')
+    .forEach(input=>input.checked=false);
+
+  document.querySelectorAll('input[name="themeMode"]')
+    .forEach(input=>input.checked=false);
 
   activeMode='mantenimiento';
   q('modeMaintenance').classList.add('active');
@@ -52,18 +54,26 @@ function clearFilters(){
 
   q('toggleSubsidencias').checked=false;
   q('toggleFracturamiento').checked=false;
-  toggleSubsidencias(false);
-  toggleFracturamiento(false);
 
+  if(subsidenciaLayer){
+    map.removeLayer(subsidenciaLayer);
+  }
+  if(fracturamientoLayer){
+    map.removeLayer(fracturamientoLayer);
+  }
+
+  q('subsidenciaLegend').classList.add('hidden');
   q('detailPanel').classList.remove('open');
 
   filteredSchools=[...allSchools];
+
   localStorage.removeItem('rm08ViewerState');
 
   updateMap();
-  renderLegend();
 
-  if(filteredSchools.length)fitToSchools(filteredSchools,12);
+  if(filteredSchools.length){
+    fitToSchools(filteredSchools,12);
+  }
 }
 function updateMap(){drawSchools();drawSummaries();updateStats();renderLegend();updateVisibilityByZoom()}
 function drawSchools(){schoolLayer.clearLayers();allSchools.forEach(s=>s.marker=null);filteredSchools.forEach(s=>{const hasSupport=hasAnySupport(s);const marker=L.circleMarker([s.lat,s.lon],{radius:7,color:borderForSchool(s),weight:hasSupport?2.4:1.3,fillColor:colorForSchool(s),fillOpacity:.92});s.marker=marker;marker.bindPopup(buildPopup(s),{maxWidth:330});marker.on('click',()=>openDetail(s));schoolLayer.addLayer(marker)});if(filteredSchools.length&&!map._initialFitDone){fitToSchools(filteredSchools,12);map._initialFitDone=true}}
@@ -97,7 +107,138 @@ function drawSummaries(){alcaldiaSummaryLayer.clearLayers();agebSummaryLayer.cle
 function drawPolygonSummary(geo,layer,type){geo.features.forEach(f=>{const ss=filteredSchools.filter(s=>pointInFeature([s.lon,s.lat],f));if(!ss.length)return;addSummaryMarker(layer,getFeatureCenter(f),getAreaName(f,type),ss,type)})}
 function addSummaryMarker(layer,latlng,name,schools,type){const count=schools.length,size=Math.max(34,Math.min(64,28+Math.sqrt(count)*4)),icon=L.divIcon({className:'',html:`<div class="summary-marker" style="width:${size}px;height:${size}px">${count}</div>`,iconSize:[size,size],iconAnchor:[size/2,size/2]});const marker=L.marker(latlng,{icon,title:`${name}: ${count} escuelas`});marker.bindTooltip(`${escapeHtml(name)}: ${count} escuelas`,{direction:'top'});marker.on('click',()=>{fitToSchools(schools,type==='alcaldía'?12:14)});marker.addTo(layer)}
 function updateVisibilityByZoom(){[schoolLayer,alcaldiaSummaryLayer,agebSummaryLayer].forEach(l=>map.removeLayer(l));if(!schoolsVisible)return;const z=map.getZoom();if(z<11)alcaldiaSummaryLayer.addTo(map);else if(z<13)agebSummaryLayer.addTo(map);else schoolLayer.addTo(map)}
-function drawExtraLayers(){if(subsidenciasGeoJSON)subsidenciaLayer=L.geoJSON(subsidenciasGeoJSON,{style:styleSubsidencia,onEachFeature:(f,l)=>{const code=Number(f.properties?.gridcode);l.bindPopup(`<div class="popup-title">Subsidencia</div><div class="popup-meta">Clasificación: <strong>${subClass(code)}</strong></div>`)}});if(fracturamientoGeoJSON)fracturamientoLayer=L.geoJSON(fracturamientoGeoJSON,{style:fractureStyle(false),onEachFeature:onEachFracture})}
+function drawExtraLayers(){
+  subsidenciaLayer=null;
+  fracturamientoLayer=null;
+
+  if(subsidenciasGeoJSON){
+    try{
+      const projected=isProjectedGeoJSON(subsidenciasGeoJSON);
+
+      subsidenciaLayer=L.geoJSON(subsidenciasGeoJSON,{
+        coordsToLatLng:projected
+          ? coords=>utm14NToLatLng(coords)
+          : coords=>L.latLng(coords[1],coords[0]),
+        style:styleSubsidencia,
+        onEachFeature:(f,l)=>{
+          const code=Number(f.properties?.gridcode);
+          l.bindPopup(
+            `<div class="popup-title">Subsidencia</div>`+
+            `<div class="popup-meta">Clasificación: `+
+            `<strong>${subClass(code)}</strong></div>`
+          );
+        }
+      });
+    }catch(error){
+      console.error('No fue posible dibujar la capa de subsidencias:',error);
+      subsidenciaLayer=null;
+    }
+  }
+
+  if(fracturamientoGeoJSON){
+    try{
+      fracturamientoLayer=L.geoJSON(fracturamientoGeoJSON,{
+        style:fractureStyle(false),
+        onEachFeature:onEachFracture
+      });
+    }catch(error){
+      console.error('No fue posible dibujar la capa de fracturamiento:',error);
+      fracturamientoLayer=null;
+    }
+  }
+}
+
+function isProjectedGeoJSON(geo){
+  const coordinate=findFirstCoordinate(geo?.features||[]);
+  return Boolean(coordinate&&Math.abs(Number(coordinate[0]))>180);
+}
+
+function findFirstCoordinate(features){
+  for(const feature of features){
+    const found=findCoordinate(feature?.geometry?.coordinates);
+    if(found)return found;
+  }
+  return null;
+}
+
+function findCoordinate(value){
+  if(!Array.isArray(value))return null;
+
+  if(
+    value.length>=2 &&
+    Number.isFinite(Number(value[0])) &&
+    Number.isFinite(Number(value[1]))
+  ){
+    return value;
+  }
+
+  for(const child of value){
+    const found=findCoordinate(child);
+    if(found)return found;
+  }
+
+  return null;
+}
+
+function utm14NToLatLng(coords){
+  const easting=Number(coords[0]);
+  const northing=Number(coords[1]);
+
+  if(!Number.isFinite(easting)||!Number.isFinite(northing)){
+    return L.latLng(0,0);
+  }
+
+  const a=6378137;
+  const eccSquared=0.00669438;
+  const k0=0.9996;
+  const zoneNumber=14;
+
+  const x=easting-500000;
+  const y=northing;
+  const longOrigin=(zoneNumber-1)*6-180+3;
+  const eccPrimeSquared=eccSquared/(1-eccSquared);
+  const M=y/k0;
+  const mu=M/(a*(1-eccSquared/4-3*Math.pow(eccSquared,2)/64-5*Math.pow(eccSquared,3)/256));
+  const e1=(1-Math.sqrt(1-eccSquared))/(1+Math.sqrt(1-eccSquared));
+
+  const J1=3*e1/2-27*Math.pow(e1,3)/32;
+  const J2=21*Math.pow(e1,2)/16-55*Math.pow(e1,4)/32;
+  const J3=151*Math.pow(e1,3)/96;
+  const J4=1097*Math.pow(e1,4)/512;
+
+  const fp=mu+
+    J1*Math.sin(2*mu)+
+    J2*Math.sin(4*mu)+
+    J3*Math.sin(6*mu)+
+    J4*Math.sin(8*mu);
+
+  const sinFp=Math.sin(fp);
+  const cosFp=Math.cos(fp);
+  const tanFp=Math.tan(fp);
+  const C1=eccPrimeSquared*Math.pow(cosFp,2);
+  const T1=Math.pow(tanFp,2);
+  const N1=a/Math.sqrt(1-eccSquared*Math.pow(sinFp,2));
+  const R1=a*(1-eccSquared)/Math.pow(1-eccSquared*Math.pow(sinFp,2),1.5);
+  const D=x/(N1*k0);
+
+  const latitude=fp-(N1*tanFp/R1)*(
+    Math.pow(D,2)/2-
+    (5+3*T1+10*C1-4*Math.pow(C1,2)-9*eccPrimeSquared)*Math.pow(D,4)/24+
+    (61+90*T1+298*C1+45*Math.pow(T1,2)-252*eccPrimeSquared-3*Math.pow(C1,2))*Math.pow(D,6)/720
+  );
+
+  const longitude=(
+    D-
+    (1+2*T1+C1)*Math.pow(D,3)/6+
+    (5-2*C1+28*T1-3*Math.pow(C1,2)+8*eccPrimeSquared+24*Math.pow(T1,2))*Math.pow(D,5)/120
+  )/cosFp;
+
+  return L.latLng(
+    latitude*180/Math.PI,
+    longOrigin+longitude*180/Math.PI
+  );
+}
+
 function toggleSubsidencias(on){if(!subsidenciaLayer)return;if(on){subsidenciaLayer.addTo(map);q('subsidenciaLegend').classList.remove('hidden')}else{map.removeLayer(subsidenciaLayer);q('subsidenciaLegend').classList.add('hidden')}}
 function toggleFracturamiento(on){if(!fracturamientoLayer)return;if(on)fracturamientoLayer.addTo(map);else map.removeLayer(fracturamientoLayer)}
 function styleSubsidencia(f){const c=Number(f.properties?.gridcode);return{color:'#fff',weight:.3,opacity:.7,fillColor:COLORS[subClass(c)]||'#64748b',fillOpacity:.48}}
